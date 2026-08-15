@@ -60,6 +60,7 @@
     }
 
     .drop-zone {
+      position: relative;
       border: 2px dashed rgba(255, 42, 133, 0.4);
       border-radius: 16px;
       padding: 28px;
@@ -78,6 +79,7 @@
     .drop-zone p {
       color: var(--text-muted);
       font-size: 0.95rem;
+      pointer-events: none;
     }
 
     .drop-zone span {
@@ -85,10 +87,18 @@
       font-weight: 600;
       display: block;
       margin-top: 6px;
+      pointer-events: none;
     }
 
-    input[type="file"] {
-      display: none;
+    /* El input invisible cubre toda la dropzone para asegurar la captura del clic */
+    .drop-zone input[type="file"] {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
     }
 
     .file-list {
@@ -145,13 +155,6 @@
 
     .form-group {
       margin-bottom: 20px;
-    }
-
-    label {
-      display: block;
-      font-size: 0.9rem;
-      margin-bottom: 8px;
-      color: var(--text-main);
     }
 
     select {
@@ -233,10 +236,10 @@
   <div class="container">
     <h1>WAV FLAC</h1>
 
-    <div class="drop-zone" id="dropZone" onclick="document.getElementById('audioInput').click()">
+    <div class="drop-zone" id="dropZone">
       <p id="fileNameDisplay">Arrastra tus archivos de audio aquí (lote)</p>
       <span>o haz clic para explorar</span>
-      <input type="file" id="audioInput" accept="audio/*" multiple />
+      <input type="file" id="audioInput" multiple />
     </div>
 
     <div class="file-list" id="fileList" style="display: none;"></div>
@@ -300,7 +303,10 @@
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
   <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ log: true });
+    const ffmpeg = createFFmpeg({ 
+      log: true,
+      corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+    });
     let selectedFiles = [];
 
     const audioInput = document.getElementById('audioInput');
@@ -380,7 +386,7 @@
         convertBtn.disabled = true;
         progressContainer.style.display = 'block';
         progressBar.style.width = '0%';
-        statusText.textContent = 'Cargando motor FFmpeg WASM...';
+        statusText.textContent = 'Cargando motor de procesamiento...';
 
         if (!ffmpeg.isLoaded()) {
           await ffmpeg.load();
@@ -392,7 +398,8 @@
           const file = selectedFiles[i];
           statusText.textContent = `Procesando (${i + 1}/${total}): ${file.name}`;
           
-          const inputName = `input_${Date.now()}_${i}.${file.name.split('.').pop()}`;
+          const ext = file.name.includes('.') ? file.name.split('.').pop() : 'wav';
+          const inputName = `input_${Date.now()}_${i}.${ext}`;
           const outputName = `output_${Date.now()}_${i}.${format}`;
 
           ffmpeg.FS('writeFile', inputName, await fetchFile(file));
@@ -440,7 +447,7 @@
         statusText.textContent = '¡Procesamiento en lote completado!';
       } catch (err) {
         console.error(err);
-        statusText.textContent = 'Ocurrió un error al procesar los archivos.';
+        statusText.textContent = 'Ocurrió un error al procesar el archivo.';
       } finally {
         convertBtn.disabled = false;
       }
