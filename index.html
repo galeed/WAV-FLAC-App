@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WAV FLAC - Audio Converter</title>
+  <style>
+    :root {
+      --bg-color: #0d0e15;
+      --card-bg: rgba(23, 25, 38, 0.75);
+      --accent-pink: #ff2a85;
+      --accent-purple: #8a2be2;
+      --text-main: #f0f3f9;
+      --text-muted: #9aa4bf;
+      --border-color: rgba(255, 255, 255, 0.1);
+      --card-inner-bg: rgba(13, 14, 21, 0.6);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      background-image: radial-gradient(circle at 50% 10%, rgba(138, 43, 226, 0.15), transparent 40%),
+                        radial-gradient(circle at 80% 80%, rgba(255, 42, 133, 0.1), transparent 50%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 620px;
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 32px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 24px;
+      letter-spacing: -0.5px;
+    }
+
+    .drop-zone {
+      border: 2px dashed rgba(255, 42, 133, 0.4);
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: rgba(255, 255, 255, 0.02);
+      margin-bottom: 24px;
+    }
+
+    .drop-zone:hover {
+      border-color: var(--accent-pink);
+      background: rgba(255, 42, 133, 0.05);
+    }
+
+    .drop-zone p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .drop-zone span {
+      color: var(--text-main);
+      font-weight: 600;
+      display: block;
+      margin-top: 6px;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .file-list {
+      max-height: 160px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      background: var(--card-inner-bg);
+      padding: 10px;
+    }
+
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.88rem;
+    }
+
+    .file-item:last-child {
+      border-bottom: none;
+    }
+
+    .file-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 80%;
+    }
+
+    .remove-file {
+      color: var(--accent-pink);
+      cursor: pointer;
+      font-weight: bold;
+      padding: 2px 6px;
+    }
+
+    .grid-settings {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .section-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9rem;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: rgba(13, 14, 21, 0.8);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.3s ease;
+    }
+
+    select:focus {
+      border-color: var(--accent-purple);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+      color: white;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(255, 42, 133, 0.3);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      margin-top: 10px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 24px rgba(255, 42, 133, 0.4);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 16px;
+      display: none;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent-pink), var(--accent-purple));
+      transition: width 0.3s ease;
+    }
+
+    .status {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--accent-pink);
+      min-height: 20px;
+    }
+
+    @media (max-width: 480px) {
+      .grid-settings {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>WAV FLAC</h1>
+
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('audioInput').click()">
+      <p id="fileNameDisplay">Arrastra tus archivos de audio aquí (lote)</p>
+      <span>o haz clic para explorar</span>
+      <input type="file" id="audioInput" accept="audio/*" multiple />
+    </div>
+
+    <div class="file-list" id="fileList" style="display: none;"></div>
+
+    <div class="grid-settings">
+      <div class="form-group">
+        <div class="section-title">Formato de Salida</div>
+        <select id="formatSelect" onchange="toggleFlacOptions()">
+          <option value="wav">WAV (Uncompressed PCM)</option>
+          <option value="flac">FLAC (Lossless Compression)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <div class="section-title">Frecuencia de Muestreo</div>
+        <select id="sampleRateSelect">
+          <option value="44100">44.1 kHz (44100 Hz)</option>
+          <option value="48000">48.0 kHz (48000 Hz)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-settings">
+      <div class="form-group">
+        <div class="section-title">Profundidad de Bits</div>
+        <select id="bitDepthSelect">
+          <option value="16">16 bits (CD Quality)</option>
+          <option value="24">24 bits (Hi-Res)</option>
+          <option value="32">32 bits flotantes</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <div class="section-title">Algoritmo de Dither</div>
+        <select id="ditherSelect">
+          <option value="none">Sin Dither (None)</option>
+          <option value="triangular">Triangular (TPDF)</option>
+          <option value="rectangular">Rectangular (RPDF)</option>
+          <option value="lipshitz">Lipshitz Noise Shaping</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group" id="flacCompressionGroup" style="display: none;">
+      <div class="section-title">Nivel de Compresión FLAC</div>
+      <select id="compressionSelect">
+        <option value="0">0 (Rápido, menor compresión)</option>
+        <option value="5" selected>5 (Balance recomendado)</option>
+        <option value="8">8 (Máxima compresión, más lento)</option>
+      </select>
+    </div>
+
+    <button class="btn" id="convertBtn" onclick="convertAudioBatch()">Convertir Archivos</button>
+    
+    <div class="progress-bar-container" id="progressContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="status" id="statusText"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+    let selectedFiles = [];
+
+    const audioInput = document.getElementById('audioInput');
+    const dropZone = document.getElementById('dropZone');
+    const fileList = document.getElementById('fileList');
+    const statusText = document.getElementById('statusText');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+
+    audioInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        addFiles(Array.from(e.target.files));
+      }
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--accent-pink)';
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.style.borderColor = 'rgba(255, 42, 133, 0.4)';
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'rgba(255, 42, 133, 0.4)';
+      if (e.dataTransfer.files.length > 0) {
+        addFiles(Array.from(e.dataTransfer.files));
+      }
+    });
+
+    function addFiles(files) {
+      selectedFiles = [...selectedFiles, ...files];
+      renderFileList();
+    }
+
+    function removeFile(index) {
+      selectedFiles.splice(index, 1);
+      renderFileList();
+    }
+
+    function renderFileList() {
+      if (selectedFiles.length === 0) {
+        fileList.style.display = 'none';
+        return;
+      }
+      fileList.style.display = 'block';
+      fileList.innerHTML = selectedFiles.map((file, i) => `
+        <div class="file-item">
+          <span class="file-name">${file.name}</span>
+          <span class="remove-file" onclick="removeFile(${i})">&times;</span>
+        </div>
+      `).join('');
+    }
+
+    function toggleFlacOptions() {
+      const format = document.getElementById('formatSelect').value;
+      const compressionGroup = document.getElementById('flacCompressionGroup');
+      compressionGroup.style.display = format === 'flac' ? 'block' : 'none';
+    }
+
+    async function convertAudioBatch() {
+      if (selectedFiles.length === 0) {
+        statusText.textContent = 'Por favor selecciona al menos un archivo primero.';
+        return;
+      }
+
+      const format = document.getElementById('formatSelect').value;
+      const sampleRate = document.getElementById('sampleRateSelect').value;
+      const bitDepth = document.getElementById('bitDepthSelect').value;
+      const dither = document.getElementById('ditherSelect').value;
+      const compression = document.getElementById('compressionSelect').value;
+      const convertBtn = document.getElementById('convertBtn');
+
+      try {
+        convertBtn.disabled = true;
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        statusText.textContent = 'Cargando motor FFmpeg WASM...';
+
+        if (!ffmpeg.isLoaded()) {
+          await ffmpeg.load();
+        }
+
+        const total = selectedFiles.length;
+
+        for (let i = 0; i < total; i++) {
+          const file = selectedFiles[i];
+          statusText.textContent = `Procesando (${i + 1}/${total}): ${file.name}`;
+          
+          const inputName = `input_${Date.now()}_${i}.${file.name.split('.').pop()}`;
+          const outputName = `output_${Date.now()}_${i}.${format}`;
+
+          ffmpeg.FS('writeFile', inputName, await fetchFile(file));
+
+          let audioFilter = `aresample=${sampleRate}`;
+          if (dither !== 'none') {
+            audioFilter += `:dither_method=${dither}`;
+          }
+
+          let args = ['-i', inputName, '-af', audioFilter];
+
+          if (format === 'wav') {
+            if (bitDepth === '16') args.push('-c:a', 'pcm_s16le');
+            else if (bitDepth === '24') args.push('-c:a', 'pcm_s24le');
+            else if (bitDepth === '32') args.push('-c:a', 'pcm_f32le');
+          } else if (format === 'flac') {
+            args.push('-c:a', 'flac');
+            args.push('-compression_level', compression);
+            if (bitDepth === '16') args.push('-sample_fmt', 's16');
+            else if (bitDepth === '24') args.push('-sample_fmt', 's32');
+          }
+
+          args.push(outputName);
+
+          await ffmpeg.run(...args);
+
+          const data = ffmpeg.FS('readFile', outputName);
+          const blob = new Blob([data.buffer], { type: `audio/${format}` });
+          const url = URL.createObjectURL(blob);
+
+          const a = document.createElement('a');
+          a.href = url;
+          const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+          a.download = `${baseName}_converted.${format}`;
+          a.click();
+
+          try {
+            ffmpeg.FS('unlink', inputName);
+            ffmpeg.FS('unlink', outputName);
+          } catch(e) {}
+
+          progressBar.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
+        }
+
+        statusText.textContent = '¡Procesamiento en lote completado!';
+      } catch (err) {
+        console.error(err);
+        statusText.textContent = 'Ocurrió un error al procesar los archivos.';
+      } finally {
+        convertBtn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
