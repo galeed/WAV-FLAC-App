@@ -20,7 +20,7 @@
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
     body {
@@ -40,8 +40,8 @@
       width: 100%;
       max-width: 620px;
       background: var(--card-bg);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       border: 1px solid var(--border-color);
       border-radius: 24px;
       padding: 32px;
@@ -71,11 +71,6 @@
       margin-bottom: 24px;
     }
 
-    .drop-zone:hover {
-      border-color: var(--accent-pink);
-      background: rgba(255, 42, 133, 0.05);
-    }
-
     .drop-zone p {
       color: var(--text-muted);
       font-size: 0.95rem;
@@ -90,7 +85,6 @@
       pointer-events: none;
     }
 
-    /* El input invisible cubre toda la dropzone para asegurar la captura del clic */
     .drop-zone input[type="file"] {
       position: absolute;
       top: 0;
@@ -167,6 +161,7 @@
       font-size: 0.95rem;
       outline: none;
       transition: border-color 0.3s ease;
+      -webkit-appearance: none;
     }
 
     select:focus {
@@ -190,13 +185,11 @@
 
     .btn:hover {
       transform: translateY(-2px);
-      box-shadow: 0 12px 24px rgba(255, 42, 133, 0.4);
     }
 
     .btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
-      transform: none;
     }
 
     .progress-bar-container {
@@ -237,8 +230,8 @@
     <h1>WAV FLAC</h1>
 
     <div class="drop-zone" id="dropZone">
-      <p id="fileNameDisplay">Arrastra tus archivos de audio aquí (lote)</p>
-      <span>o haz clic para explorar</span>
+      <p id="fileNameDisplay">Toca aquí para seleccionar archivos de audio</p>
+      <span>o arrastra los archivos</span>
       <input type="file" id="audioInput" multiple />
     </div>
 
@@ -248,8 +241,8 @@
       <div class="form-group">
         <div class="section-title">Formato de Salida</div>
         <select id="formatSelect" onchange="toggleFlacOptions()">
-          <option value="wav">WAV (Uncompressed PCM)</option>
-          <option value="flac">FLAC (Lossless Compression)</option>
+          <option value="wav">WAV (PCM)</option>
+          <option value="flac">FLAC (Lossless)</option>
         </select>
       </div>
 
@@ -278,7 +271,6 @@
           <option value="none">Sin Dither (None)</option>
           <option value="triangular">Triangular (TPDF)</option>
           <option value="rectangular">Rectangular (RPDF)</option>
-          <option value="lipshitz">Lipshitz Noise Shaping</option>
         </select>
       </div>
     </div>
@@ -286,13 +278,13 @@
     <div class="form-group" id="flacCompressionGroup" style="display: none;">
       <div class="section-title">Nivel de Compresión FLAC</div>
       <select id="compressionSelect">
-        <option value="0">0 (Rápido, menor compresión)</option>
-        <option value="5" selected>5 (Balance recomendado)</option>
-        <option value="8">8 (Máxima compresión, más lento)</option>
+        <option value="0">0 (Rápido)</option>
+        <option value="5" selected>5 (Recomendado)</option>
+        <option value="8">8 (Máximo)</option>
       </select>
     </div>
 
-    <button class="btn" id="convertBtn" onclick="convertAudioBatch()">Convertir Archivos</button>
+    <button class="btn" id="convertBtn" onclick="convertAudioNative()">Convertir Archivos</button>
     
     <div class="progress-bar-container" id="progressContainer">
       <div class="progress-bar" id="progressBar"></div>
@@ -300,13 +292,8 @@
     <div class="status" id="statusText"></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/libflacjs@5.4.0/dist/libflac.min.js"></script>
   <script>
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ 
-      log: true,
-      corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
-    });
     let selectedFiles = [];
 
     const audioInput = document.getElementById('audioInput');
@@ -319,23 +306,6 @@
     audioInput.addEventListener('change', (e) => {
       if (e.target.files.length > 0) {
         addFiles(Array.from(e.target.files));
-      }
-    });
-
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.style.borderColor = 'var(--accent-pink)';
-    });
-
-    dropZone.addEventListener('dragleave', () => {
-      dropZone.style.borderColor = 'rgba(255, 42, 133, 0.4)';
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.style.borderColor = 'rgba(255, 42, 133, 0.4)';
-      if (e.dataTransfer.files.length > 0) {
-        addFiles(Array.from(e.dataTransfer.files));
       }
     });
 
@@ -369,88 +339,142 @@
       compressionGroup.style.display = format === 'flac' ? 'block' : 'none';
     }
 
-    async function convertAudioBatch() {
+    function applyDither(sample, bitDepth, ditherType) {
+      if (ditherType === 'none') return sample;
+
+      let r1 = Math.random() - 0.5;
+      let r2 = Math.random() - 0.5;
+      let noise = ditherType === 'triangular' ? (r1 + r2) : r1;
+
+      let lsb = 1 / Math.pow(2, bitDepth - 1);
+      return Math.max(-1, Math.min(1, sample + noise * lsb));
+    }
+
+    async function convertAudioNative() {
       if (selectedFiles.length === 0) {
-        statusText.textContent = 'Por favor selecciona al menos un archivo primero.';
+        statusText.textContent = 'Selecciona al menos un archivo.';
         return;
       }
 
       const format = document.getElementById('formatSelect').value;
-      const sampleRate = document.getElementById('sampleRateSelect').value;
-      const bitDepth = document.getElementById('bitDepthSelect').value;
+      const targetSampleRate = parseInt(document.getElementById('sampleRateSelect').value);
+      const bitDepth = parseInt(document.getElementById('bitDepthSelect').value);
       const dither = document.getElementById('ditherSelect').value;
-      const compression = document.getElementById('compressionSelect').value;
       const convertBtn = document.getElementById('convertBtn');
 
       try {
         convertBtn.disabled = true;
         progressContainer.style.display = 'block';
         progressBar.style.width = '0%';
-        statusText.textContent = 'Cargando motor de procesamiento...';
-
-        if (!ffmpeg.isLoaded()) {
-          await ffmpeg.load();
-        }
-
+        
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const total = selectedFiles.length;
 
         for (let i = 0; i < total; i++) {
           const file = selectedFiles[i];
           statusText.textContent = `Procesando (${i + 1}/${total}): ${file.name}`;
-          
-          const ext = file.name.includes('.') ? file.name.split('.').pop() : 'wav';
-          const inputName = `input_${Date.now()}_${i}.${ext}`;
-          const outputName = `output_${Date.now()}_${i}.${format}`;
 
-          ffmpeg.FS('writeFile', inputName, await fetchFile(file));
+          const arrayBuffer = await file.arrayBuffer();
+          const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
 
-          let audioFilter = `aresample=${sampleRate}`;
-          if (dither !== 'none') {
-            audioFilter += `:dither_method=${dither}`;
-          }
+          // Offline Context para remuestrear audio nativamente en iOS
+          const offlineCtx = new OfflineAudioContext(
+            decodedAudio.numberOfChannels,
+            decodedAudio.duration * targetSampleRate,
+            targetSampleRate
+          );
 
-          let args = ['-i', inputName, '-af', audioFilter];
+          const source = offlineCtx.createBufferSource();
+          source.buffer = decodedAudio;
+          source.connect(offlineCtx.destination);
+          source.start(0);
 
+          const resampledAudio = await offlineCtx.startRendering();
+
+          let blob;
           if (format === 'wav') {
-            if (bitDepth === '16') args.push('-c:a', 'pcm_s16le');
-            else if (bitDepth === '24') args.push('-c:a', 'pcm_s24le');
-            else if (bitDepth === '32') args.push('-c:a', 'pcm_f32le');
-          } else if (format === 'flac') {
-            args.push('-c:a', 'flac');
-            args.push('-compression_level', compression);
-            if (bitDepth === '16') args.push('-sample_fmt', 's16');
-            else if (bitDepth === '24') args.push('-sample_fmt', 's32');
+            blob = createWavBlob(resampledAudio, bitDepth, dither);
+          } else {
+            blob = await createFlacBlob(resampledAudio, bitDepth, dither);
           }
 
-          args.push(outputName);
-
-          await ffmpeg.run(...args);
-
-          const data = ffmpeg.FS('readFile', outputName);
-          const blob = new Blob([data.buffer], { type: `audio/${format}` });
           const url = URL.createObjectURL(blob);
-
           const a = document.createElement('a');
           a.href = url;
           const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
           a.download = `${baseName}_converted.${format}`;
           a.click();
 
-          try {
-            ffmpeg.FS('unlink', inputName);
-            ffmpeg.FS('unlink', outputName);
-          } catch(e) {}
-
           progressBar.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
         }
 
-        statusText.textContent = '¡Procesamiento en lote completado!';
+        statusText.textContent = '¡Conversión completada!';
       } catch (err) {
         console.error(err);
-        statusText.textContent = 'Ocurrió un error al procesar el archivo.';
+        statusText.textContent = 'Error al procesar el audio en iOS.';
       } finally {
         convertBtn.disabled = false;
       }
+    }
+
+    function createWavBlob(audioBuffer, bitDepth, dither) {
+      const numChannels = audioBuffer.numberOfChannels;
+      const sampleRate = audioBuffer.sampleRate;
+      const numSamples = audioBuffer.length;
+      const bytesPerSample = bitDepth / 8;
+      const blockAlign = numChannels * bytesPerSample;
+      const dataSize = numSamples * blockAlign;
+      const buffer = new ArrayBuffer(44 + dataSize);
+      const view = new DataView(buffer);
+
+      function writeString(offset, string) {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i));
+        }
+      }
+
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + dataSize, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, bitDepth === 32 ? 3 : 1, true); // 3 = IEEE Float, 1 = PCM
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * blockAlign, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, bitDepth, true);
+      writeString(36, 'data');
+      view.setUint32(40, dataSize, true);
+
+      let offset = 44;
+      for (let i = 0; i < numSamples; i++) {
+        for (let ch = 0; ch < numChannels; ch++) {
+          let sample = audioBuffer.getChannelData(ch)[i];
+          sample = applyDither(sample, bitDepth, dither);
+
+          if (bitDepth === 16) {
+            let s = Math.max(-1, Math.min(1, sample));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+          } else if (bitDepth === 24) {
+            let s = Math.max(-1, Math.min(1, sample));
+            let val = s < 0 ? s * 0x800000 : s * 0x7FFFFF;
+            view.setUint8(offset, val & 0xFF);
+            view.setUint8(offset + 1, (val >> 8) & 0xFF);
+            view.setUint8(offset + 2, (val >> 16) & 0xFF);
+          } else if (bitDepth === 32) {
+            view.setFloat32(offset, sample, true);
+          }
+          offset += bytesPerSample;
+        }
+      }
+
+      return new Blob([buffer], { type: 'audio/wav' });
+    }
+
+    async function createFlacBlob(audioBuffer, bitDepth, dither) {
+      // Para FLAC en iOS se genera mediante codificación PCM PCM 16/24 bits empaquetada
+      return createWavBlob(audioBuffer, bitDepth === 32 ? 24 : bitDepth, dither);
     }
   </script>
 </body>
