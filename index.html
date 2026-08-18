@@ -490,7 +490,7 @@
       return new Blob([buffer], { type: 'audio/wav' });
     }
 
-    async function encodeFlacWithMetadata(audioBuffer, bitDepth, compressionLevel, dither) {
+        async function encodeFlacWithMetadata(audioBuffer, bitDepth, compressionLevel, dither) {
       return new Promise((resolve, reject) => {
         try {
           const channels = audioBuffer.numberOfChannels;
@@ -524,10 +524,7 @@
           );
 
           const blockLength = 4096;
-          const bufferSize = blockLength * channels;
-          const bytesPerElement = 4;
-          const heapPtr = FlacEncoderModule._malloc(bufferSize * bytesPerElement);
-          const pcmHeap = new Int32Array(FlacEncoderModule.HEAP32.buffer, heapPtr, bufferSize);
+          const pcmBuff = new Int32Array(blockLength * channels);
 
           for (let i = 0; i < totalSamples; i += blockLength) {
             const currentBlockSize = Math.min(blockLength, totalSamples - i);
@@ -540,25 +537,25 @@
                 let s = Math.max(-1, Math.min(1, sample));
 
                 if (bitDepth === 16) {
-                  pcmHeap[ptr++] = Math.floor(s < 0 ? s * 0x8000 : s * 0x7FFF);
+                  pcmBuff[ptr++] = Math.floor(s < 0 ? s * 0x8000 : s * 0x7FFF);
                 } else {
-                  pcmHeap[ptr++] = Math.floor(s < 0 ? s * 0x800000 : s * 0x7FFFFF);
+                  pcmBuff[ptr++] = Math.floor(s < 0 ? s * 0x800000 : s * 0x7FFFFF);
                 }
               }
             }
 
+            // Pasa las muestras como un subarray directo en lugar de llamar a _malloc
             FlacEncoderModule.FLAC__stream_encoder_process_interleaved(
               encoder,
-              heapPtr,
+              pcmBuff.subarray(0, currentBlockSize * channels),
               currentBlockSize
             );
           }
 
           FlacEncoderModule.FLAC__stream_encoder_finish(encoder);
-          FlacEncoderModule._free(heapPtr);
           FlacEncoderModule.FLAC__stream_encoder_delete(encoder);
 
-          // Combinar fragmentos en una sola matriz para corregir la cabecera final
+          // Combinar bloques en un solo TypedArray
           let totalBytes = flacChunks.reduce((acc, chunk) => acc + chunk.length, 0);
           let merged = new Uint8Array(totalBytes);
           let offset = 0;
@@ -567,9 +564,9 @@
             offset += chunk.length;
           }
 
-          // Corrección manual de StreamInfo (Inyección del total exacto de muestras)
+          // Corrección del bloque STREAMINFO inyectando la duración total
           if (merged.length > 26) {
-            merged[21] = (totalSamples >> 28) & 0x0F | (merged[21] & 0xF0);
+            merged[21] = ((totalSamples >> 28) & 0x0F) | (merged[21] & 0xF0);
             merged[22] = (totalSamples >> 20) & 0xFF;
             merged[23] = (totalSamples >> 12) & 0xFF;
             merged[24] = (totalSamples >> 4) & 0xFF;
@@ -582,6 +579,7 @@
         }
       });
     }
+
   </script>
 </body>
 </html>
