@@ -278,9 +278,9 @@
     <div class="form-group" id="flacCompressionGroup" style="display: none;">
       <div class="section-title">Nivel de Compresión FLAC</div>
       <select id="compressionSelect">
-        <option value="0">0 (Rápido)</option>
+        <option value="0">0 (Rápido, menor compresión)</option>
         <option value="5" selected>5 (Recomendado)</option>
-        <option value="8">8 (Máximo)</option>
+        <option value="8">8 (Máxima compresión)</option>
       </select>
     </div>
 
@@ -292,8 +292,19 @@
     <div class="status" id="statusText"></div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/libflacjs@5.4.0/dist/libflac.min.js"></script>
+
   <script>
     let selectedFiles = [];
+    let FlacEncoderModule = null;
+
+    // Inicializar el módulo FLAC de libflac.js
+    if (typeof Flac !== 'undefined') {
+      Flac.on('ready', function(event) {
+        FlacEncoderModule = event.target;
+        console.log('Motor FLAC listo.');
+      });
+    }
 
     const audioInput = document.getElementById('audioInput');
     const dropZone = document.getElementById('dropZone');
@@ -357,6 +368,7 @@
       const targetSampleRate = parseInt(document.getElementById('sampleRateSelect').value);
       let bitDepth = parseInt(document.getElementById('bitDepthSelect').value);
       const dither = document.getElementById('ditherSelect').value;
+      const compressionLevel = parseInt(document.getElementById('compressionSelect').value);
       const convertBtn = document.getElementById('convertBtn');
 
       if (format === 'flac' && bitDepth === 32) {
@@ -367,7 +379,15 @@
         convertBtn.disabled = true;
         progressContainer.style.display = 'block';
         progressBar.style.width = '0%';
-        
+
+        if (format === 'flac' && (!FlacEncoderModule || !FlacEncoderModule.isReady())) {
+          statusText.textContent = 'Cargando motor de compresión FLAC...';
+          await new Promise(r => setTimeout(r, 1000));
+          if (!FlacEncoderModule || !FlacEncoderModule.isReady()) {
+            throw new Error('No se pudo inicializar el motor de compresión FLAC.');
+          }
+        }
+
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const total = selectedFiles.length;
 
@@ -395,7 +415,7 @@
           if (format === 'wav') {
             blob = createWavBlob(resampledAudio, bitDepth, dither);
           } else {
-            blob = encodeFlacNative(resampledAudio, bitDepth, dither);
+            blob = await encodeFlacReal(resampledAudio, bitDepth, compressionLevel, dither);
           }
 
           const url = URL.createObjectURL(blob);
@@ -411,7 +431,7 @@
         statusText.textContent = '¡Conversión completada con éxito!';
       } catch (err) {
         console.error(err);
-        statusText.textContent = 'Error al procesar el archivo en iOS.';
+        statusText.textContent = err.message || 'Error al procesar el archivo.';
       } finally {
         convertBtn.disabled = false;
       }
@@ -472,78 +492,77 @@
       return new Blob([buffer], { type: 'audio/wav' });
     }
 
-    // Codificador FLAC nativo sin dependencias externas
-    function encodeFlacNative(audioBuffer, bitDepth, dither) {
-      const numChannels = audioBuffer.numberOfChannels;
-      const sampleRate = audioBuffer.sampleRate;
-      const numSamples = audioBuffer.length;
-      
-      const wavHeaderSize = 44;
-      const bytesPerSample = bitDepth / 8;
-      const dataSize = numSamples * numChannels * bytesPerSample;
-      const totalSize = wavHeaderSize + dataSize;
-      
-      const pcmData = new Uint8Array(totalSize);
-      const view = new DataView(pcmData.buffer);
+    // Codificación FLAC comprimida real usando libflacjs
+    async function encodeFlacReal(audioBuffer, bitDepth, compressionLevel, dither) {
+      return new Promise((resolve, reject) => {
+        try {
+          const channels = audioBuffer.numberOfChannels;
+          const sampleRate = audioBuffer.sampleRate;
+          const length = audioBuffer.length;
 
-      function writeString(offset, string) {
-        for (let i = 0; i < string.length; i++) {
-          view.setUint8(offset + i, string.charCodeAt(i));
-        }
-      }
+          const encoder = FlacEncoderModule.create_libflac_encoder(
+            sampleRate,
+            channels,
+            bitDepth,
+            compressionLevel,
+            0,
+            false,
+            0
+          );
 
-      writeString(0, 'RIFF');
-      view.setUint32(4, 36 + dataSize, true);
-      writeString(8, 'WAVE');
-      writeString(12, 'fmt ');
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, numChannels, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
-      view.setUint16(32, numChannels * bytesPerSample, true);
-      view.setUint16(34, bitDepth, true);
-      writeString(36, 'data');
-      view.setUint32(40, dataSize, true);
-
-      let offset = 44;
-      for (let i = 0; i < numSamples; i++) {
-        for (let ch = 0; ch < numChannels; ch++) {
-          let sample = audioBuffer.getChannelData(ch)[i];
-          sample = applyDither(sample, bitDepth, dither);
-
-          if (bitDepth === 16) {
-            let s = Math.max(-1, Math.min(1, sample));
-            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-          } else {
-            let s = Math.max(-1, Math.min(1, sample));
-            let val = Math.floor(s < 0 ? s * 0x800000 : s * 0x7FFFFF);
-            view.setUint8(offset, val & 0xFF);
-            view.setUint8(offset + 1, (val >> 8) & 0xFF);
-            view.setUint8(offset + 2, (val >> 16) & 0xFF);
+          if (!encoder) {
+            return reject(new Error('Fallo al inicializar el codificador FLAC.'));
           }
-          offset += bytesPerSample;
+
+          const flacData = [];
+
+          FlacEncoderModule.init_encoder_stream(
+            encoder,
+            function(data) {
+              flacData.push(data);
+            },
+            null,
+            null,
+            null
+          );
+
+          const blockLength = 4096;
+          const pcmBuff = new Int32Array(blockLength * channels);
+
+          for (let i = 0; i < length; i += blockLength) {
+            const currentBlockSize = Math.min(blockLength, length - i);
+            let ptr = 0;
+
+            for (let j = 0; j < currentBlockSize; j++) {
+              for (let ch = 0; ch < channels; ch++) {
+                let sample = audioBuffer.getChannelData(ch)[i + j];
+                sample = applyDither(sample, bitDepth, dither);
+                let s = Math.max(-1, Math.min(1, sample));
+
+                if (bitDepth === 16) {
+                  pcmBuff[ptr++] = Math.floor(s < 0 ? s * 0x8000 : s * 0x7FFF);
+                } else {
+                  pcmBuff[ptr++] = Math.floor(s < 0 ? s * 0x800000 : s * 0x7FFFFF);
+                }
+              }
+            }
+
+            FlacEncoderModule.FLAC__stream_encoder_process_interleaved(
+              encoder,
+              pcmBuff,
+              currentBlockSize
+            );
+          }
+
+          FlacEncoderModule.FLAC__stream_encoder_finish(encoder);
+          FlacEncoderModule.FLAC__stream_encoder_delete(encoder);
+
+          const blob = new Blob(flacData, { type: 'audio/flac' });
+          resolve(blob);
+        } catch (e) {
+          reject(e);
         }
-      }
-
-      // Estructura de encabezado FLAC nativa
-      const flacHeader = new Uint8Array([
-        0x66, 0x4C, 0x61, 0x43, // 'fLaC'
-        0x80, // ÚLTIMO BLOQUE METADATA, TIPO STREAMINFO (0)
-        0x00, 0x00, 0x22, // LONGITUD 34 BYTES
-        0x10, 0x00, 0x10, 0x00, // MIN/MAX BLOCK SIZE
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MIN/MAX FRAME SIZE
-        (sampleRate >> 12) & 0xFF,
-        (sampleRate >> 4) & 0xFF,
-        ((sampleRate & 0x0F) << 4) | ((numChannels - 1) << 1) | ((bitDepth - 1) >> 4),
-        (((bitDepth - 1) & 0x0F) << 4) | ((numSamples >> 28) & 0x0F),
-        (numSamples >> 20) & 0xFF,
-        (numSamples >> 12) & 0xFF,
-        (numSamples >> 4) & 0xFF,
-        (numSamples & 0x0F) << 4
-      ]);
-
-      return new Blob([flacHeader, pcmData], { type: 'audio/flac' });
+      });
     }
   </script>
 </body>
