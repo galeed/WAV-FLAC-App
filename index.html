@@ -298,11 +298,9 @@
     let selectedFiles = [];
     let FlacEncoderModule = null;
 
-    // Inicializar el módulo FLAC de libflac.js
     if (typeof Flac !== 'undefined') {
       Flac.on('ready', function(event) {
         FlacEncoderModule = event.target;
-        console.log('Motor FLAC listo.');
       });
     }
 
@@ -415,7 +413,7 @@
           if (format === 'wav') {
             blob = createWavBlob(resampledAudio, bitDepth, dither);
           } else {
-            blob = await encodeFlacReal(resampledAudio, bitDepth, compressionLevel, dither);
+            blob = await encodeFlacWithMetadata(resampledAudio, bitDepth, compressionLevel, dither);
           }
 
           const url = URL.createObjectURL(blob);
@@ -492,34 +490,33 @@
       return new Blob([buffer], { type: 'audio/wav' });
     }
 
-    // Codificación FLAC comprimida real usando libflacjs
-    async function encodeFlacReal(audioBuffer, bitDepth, compressionLevel, dither) {
+    async function encodeFlacWithMetadata(audioBuffer, bitDepth, compressionLevel, dither) {
       return new Promise((resolve, reject) => {
         try {
           const channels = audioBuffer.numberOfChannels;
           const sampleRate = audioBuffer.sampleRate;
-          const length = audioBuffer.length;
+          const totalSamples = audioBuffer.length;
 
           const encoder = FlacEncoderModule.create_libflac_encoder(
             sampleRate,
             channels,
             bitDepth,
             compressionLevel,
-            0,
+            totalSamples,
             false,
             0
           );
 
           if (!encoder) {
-            return reject(new Error('Fallo al inicializar el codificador FLAC.'));
+            return reject(new Error('No se pudo inicializar el codificador.'));
           }
 
-          const flacData = [];
+          const flacChunks = [];
 
           FlacEncoderModule.init_encoder_stream(
             encoder,
             function(data) {
-              flacData.push(data);
+              flacChunks.push(new Uint8Array(data));
             },
             null,
             null,
@@ -527,10 +524,13 @@
           );
 
           const blockLength = 4096;
-          const pcmBuff = new Int32Array(blockLength * channels);
+          const bufferSize = blockLength * channels;
+          const bytesPerElement = 4;
+          const heapPtr = FlacEncoderModule._malloc(bufferSize * bytesPerElement);
+          const pcmHeap = new Int32Array(FlacEncoderModule.HEAP32.buffer, heapPtr, bufferSize);
 
-          for (let i = 0; i < length; i += blockLength) {
-            const currentBlockSize = Math.min(blockLength, length - i);
+          for (let i = 0; i < totalSamples; i += blockLength) {
+            const currentBlockSize = Math.min(blockLength, totalSamples - i);
             let ptr = 0;
 
             for (let j = 0; j < currentBlockSize; j++) {
@@ -540,25 +540,43 @@
                 let s = Math.max(-1, Math.min(1, sample));
 
                 if (bitDepth === 16) {
-                  pcmBuff[ptr++] = Math.floor(s < 0 ? s * 0x8000 : s * 0x7FFF);
+                  pcmHeap[ptr++] = Math.floor(s < 0 ? s * 0x8000 : s * 0x7FFF);
                 } else {
-                  pcmBuff[ptr++] = Math.floor(s < 0 ? s * 0x800000 : s * 0x7FFFFF);
+                  pcmHeap[ptr++] = Math.floor(s < 0 ? s * 0x800000 : s * 0x7FFFFF);
                 }
               }
             }
 
             FlacEncoderModule.FLAC__stream_encoder_process_interleaved(
               encoder,
-              pcmBuff,
+              heapPtr,
               currentBlockSize
             );
           }
 
           FlacEncoderModule.FLAC__stream_encoder_finish(encoder);
+          FlacEncoderModule._free(heapPtr);
           FlacEncoderModule.FLAC__stream_encoder_delete(encoder);
 
-          const blob = new Blob(flacData, { type: 'audio/flac' });
-          resolve(blob);
+          // Combinar fragmentos en una sola matriz para corregir la cabecera final
+          let totalBytes = flacChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+          let merged = new Uint8Array(totalBytes);
+          let offset = 0;
+          for (let chunk of flacChunks) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+          }
+
+          // Corrección manual de StreamInfo (Inyección del total exacto de muestras)
+          if (merged.length > 26) {
+            merged[21] = (totalSamples >> 28) & 0x0F | (merged[21] & 0xF0);
+            merged[22] = (totalSamples >> 20) & 0xFF;
+            merged[23] = (totalSamples >> 12) & 0xFF;
+            merged[24] = (totalSamples >> 4) & 0xFF;
+            merged[25] = ((totalSamples & 0x0F) << 4) | (merged[25] & 0x0F);
+          }
+
+          resolve(new Blob([merged], { type: 'audio/flac' }));
         } catch (e) {
           reject(e);
         }
